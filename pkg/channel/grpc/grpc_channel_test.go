@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -7,41 +7,23 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"testing"
 
-	"github.com/dapr/dapr/pkg/channel"
-	pb "github.com/dapr/dapr/pkg/proto/daprclient"
-	any "github.com/golang/protobuf/ptypes/any"
-	empty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+
+	channelt "github.com/dapr/dapr/pkg/channel/testing"
+	invokev1 "github.com/dapr/dapr/pkg/messaging/v1"
+	runtimev1pb "github.com/dapr/dapr/pkg/proto/runtime/v1"
+	auth "github.com/dapr/dapr/pkg/runtime/security"
 )
 
-type mockServer struct {
-}
-
-func (m *mockServer) OnInvoke(ctx context.Context, in *pb.InvokeEnvelope) (*any.Any, error) {
-	ret := ""
-	for k, v := range in.Metadata {
-		ret += k + "=" + v + "&"
-	}
-	return &any.Any{Value: []byte(ret)}, nil
-}
-func (m *mockServer) GetTopicSubscriptions(ctx context.Context, in *empty.Empty) (*pb.GetTopicSubscriptionsEnvelope, error) {
-	return &pb.GetTopicSubscriptionsEnvelope{}, nil
-}
-func (m *mockServer) GetBindingsSubscriptions(ctx context.Context, in *empty.Empty) (*pb.GetBindingsSubscriptionsEnvelope, error) {
-	return &pb.GetBindingsSubscriptionsEnvelope{}, nil
-}
-func (m *mockServer) OnBindingEvent(ctx context.Context, in *pb.BindingEventEnvelope) (*pb.BindingResponseEnvelope, error) {
-	return &pb.BindingResponseEnvelope{}, nil
-}
-func (m *mockServer) OnTopicEvent(ctx context.Context, in *pb.CloudEventEnvelope) (*empty.Empty, error) {
-	return &empty.Empty{}, nil
-}
+// TODO: Add APIVersion testing
 
 func TestInvokeMethod(t *testing.T) {
 	lis, err := net.Listen("tcp", "127.0.0.1:9998")
@@ -49,7 +31,7 @@ func TestInvokeMethod(t *testing.T) {
 
 	grpcServer := grpc.NewServer()
 	go func() {
-		pb.RegisterDaprClientServer(grpcServer, &mockServer{})
+		runtimev1pb.RegisterAppCallbackServer(grpcServer, &channelt.MockServer{})
 		grpcServer.Serve(lis)
 	}()
 
@@ -59,16 +41,23 @@ func TestInvokeMethod(t *testing.T) {
 	defer close(t, conn)
 	assert.NoError(t, err)
 
-	c := Channel{baseAddress: "localhost:9998", client: conn}
-	request := &channel.InvokeRequest{
-		Metadata: map[string]string{"http.query_string": "param1=val1&param2=val2"},
-	}
-	response, err := c.InvokeMethod(request)
+	c := Channel{baseAddress: "localhost:9998", client: conn, appMetadataToken: "token1", maxRequestBodySize: 4}
+	req := invokev1.NewInvokeMethodRequest("method")
+	req.WithHTTPExtension(http.MethodPost, "param1=val1&param2=val2")
+	response, err := c.InvokeMethod(context.Background(), req)
+	assert.NoError(t, err)
+	contentType, body := response.RawData()
 	grpcServer.Stop()
 
-	assert.NoError(t, err)
-	assert.True(t, string(response.Data) == "param1=val1&param2=val2&" ||
-		string(response.Data) == "param2=val2&param1=val1&")
+	assert.Equal(t, "application/json", contentType)
+
+	actual := map[string]string{}
+	json.Unmarshal(body, &actual)
+
+	assert.Equal(t, "POST", actual["httpverb"])
+	assert.Equal(t, "method", actual["method"])
+	assert.Equal(t, "token1", actual[auth.APITokenHeader])
+	assert.Equal(t, "param1=val1&param2=val2", actual["querystring"])
 }
 
 func close(t *testing.T, c io.Closer) {

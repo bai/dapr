@@ -1,11 +1,12 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -51,6 +52,7 @@ func testAppDescription() AppDescription {
 		RegistryName:   "dapriotest",
 		Replicas:       1,
 		IngressEnabled: true,
+		MetricsEnabled: true,
 	}
 }
 
@@ -65,7 +67,7 @@ func TestDeployApp(t *testing.T) {
 
 	// assert
 	deploymentClient := client.Deployments(testNamespace)
-	deployment, _ := deploymentClient.Get(testApp.AppName, metav1.GetOptions{})
+	deployment, _ := deploymentClient.Get(context.TODO(), testApp.AppName, metav1.GetOptions{})
 	assert.NotNil(t, deployment)
 	assert.Equal(t, testApp.AppName, deployment.ObjectMeta.Name)
 	assert.Equal(t, testNamespace, deployment.ObjectMeta.Namespace)
@@ -238,7 +240,7 @@ func TestScaleDeploymentReplica(t *testing.T) {
 	})
 }
 
-func TestValidiateSideCar(t *testing.T) {
+func TestValidateSidecar(t *testing.T) {
 	testApp := testAppDescription()
 
 	objMeta := metav1.ObjectMeta{
@@ -283,10 +285,9 @@ func TestValidiateSideCar(t *testing.T) {
 			})
 
 		appManager := NewAppManager(client, testNamespace, testApp)
-		found, err := appManager.ValidiateSideCar()
+		err := appManager.ValidateSidecar()
 
 		assert.NoError(t, err)
-		assert.True(t, found)
 	})
 
 	t.Run("Sidecar is not injected", func(t *testing.T) {
@@ -319,8 +320,7 @@ func TestValidiateSideCar(t *testing.T) {
 			})
 
 		appManager := NewAppManager(client, testNamespace, testApp)
-		found, err := appManager.ValidiateSideCar()
-		assert.False(t, found)
+		err := appManager.ValidateSidecar()
 		assert.Error(t, err)
 	})
 
@@ -342,8 +342,7 @@ func TestValidiateSideCar(t *testing.T) {
 			})
 
 		appManager := NewAppManager(client, testNamespace, testApp)
-		found, err := appManager.ValidiateSideCar()
-		assert.False(t, found)
+		err := appManager.ValidateSidecar()
 		assert.Error(t, err)
 	})
 }
@@ -360,7 +359,7 @@ func TestCreateIngressService(t *testing.T) {
 		assert.NoError(t, err)
 		// assert
 		serviceClient := client.Services(testNamespace)
-		obj, _ := serviceClient.Get(testApp.AppName, metav1.GetOptions{})
+		obj, _ := serviceClient.Get(context.TODO(), testApp.AppName, metav1.GetOptions{})
 		assert.NotNil(t, obj)
 		assert.Equal(t, testApp.AppName, obj.ObjectMeta.Name)
 		assert.Equal(t, testNamespace, obj.ObjectMeta.Namespace)
@@ -376,7 +375,7 @@ func TestCreateIngressService(t *testing.T) {
 		assert.NoError(t, err)
 		// assert
 		serviceClient := client.Services(testNamespace)
-		obj, _ := serviceClient.Get(testApp.AppName, metav1.GetOptions{})
+		obj, _ := serviceClient.Get(context.TODO(), testApp.AppName, metav1.GetOptions{})
 		assert.NotNil(t, obj)
 		assert.Equal(t, testApp.AppName, obj.ObjectMeta.Name)
 		assert.Equal(t, testNamespace, obj.ObjectMeta.Namespace)

@@ -1,76 +1,64 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
 package components
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/cenkalti/backoff"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/dapr/kit/logger"
+
 	components_v1alpha1 "github.com/dapr/dapr/pkg/apis/components/v1alpha1"
 	config "github.com/dapr/dapr/pkg/config/modes"
-	"github.com/valyala/fasthttp"
+	operatorv1pb "github.com/dapr/dapr/pkg/proto/operator/v1"
 )
 
-const maxRetryTime = time.Second * 30
+var log = logger.NewLogger("dapr.runtime.components")
 
-// KubernetesComponents loads components in a kubernetes environment
+const (
+	operatorCallTimeout = time.Second * 5
+	operatorMaxRetries  = 100
+)
+
+// KubernetesComponents loads components in a kubernetes environment.
 type KubernetesComponents struct {
 	config config.KubernetesConfig
+	client operatorv1pb.OperatorClient
 }
 
-// NewKubernetesComponents returns a new kubernetes loader
-func NewKubernetesComponents(configuration config.KubernetesConfig) *KubernetesComponents {
+// NewKubernetesComponents returns a new kubernetes loader.
+func NewKubernetesComponents(configuration config.KubernetesConfig, operatorClient operatorv1pb.OperatorClient) *KubernetesComponents {
 	return &KubernetesComponents{
 		config: configuration,
+		client: operatorClient,
 	}
 }
 
-// LoadComponents returns components from a given control plane address
+// LoadComponents returns components from a given control plane address.
 func (k *KubernetesComponents) LoadComponents() ([]components_v1alpha1.Component, error) {
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = maxRetryTime
-
-	url := fmt.Sprintf("%s/components", k.config.ControlPlaneAddress)
-	var components []components_v1alpha1.Component
-
-	err := backoff.Retry(func() error {
-		body, err := requestControlPlane(url)
-		if err != nil {
-			return err
-		}
-		err = json.Unmarshal(body, &components)
-		if err != nil {
-			return nil
-		}
-		return nil
-	}, b)
-
-	return components, err
-}
-
-// Retry mechanism when requesting the Operator API
-func requestControlPlane(url string) ([]byte, error) {
-	req := fasthttp.AcquireRequest()
-	req.SetRequestURI(url)
-	req.Header.SetContentType("application/json")
-
-	resp := fasthttp.AcquireResponse()
-	client := &fasthttp.Client{
-		ReadTimeout: time.Second * 10,
-	}
-	err := client.Do(req, resp)
+	resp, err := k.client.ListComponents(context.Background(), &emptypb.Empty{}, grpc_retry.WithMax(operatorMaxRetries), grpc_retry.WithPerRetryTimeout(operatorCallTimeout))
 	if err != nil {
-		// Request failed, try again
-		log.Info("Retrying getting components")
 		return nil, err
 	}
+	comps := resp.GetComponents()
 
-	body := resp.Body()
-	return body, nil
+	components := []components_v1alpha1.Component{}
+	for _, c := range comps {
+		var component components_v1alpha1.Component
+		component.Spec = components_v1alpha1.ComponentSpec{}
+		err := json.Unmarshal(c, &component)
+		if err != nil {
+			log.Warnf("error deserializing component: %s", err)
+			continue
+		}
+		components = append(components, component)
+	}
+	return components, nil
 }

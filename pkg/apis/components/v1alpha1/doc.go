@@ -1,8 +1,8 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
-// +k8s:deepcopy-gen=package
+// +kubebuilder:object:generate=true
 // +groupName=components.dapr.io
 package v1alpha1

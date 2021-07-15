@@ -46,7 +46,7 @@ Before you file an issue, make sure you've checked the following:
         - 👎 down-vote
 1. For bugs
     - Check it's not an environment issue. For example, if running on Kubernetes, make sure prerequisites are in place. (state stores, bindings, etc.)
-    - You have as much data as possible. This usually comes in the form of logs and/or stacktrace. If running on Kubernetes or other environment, look at the logs of the Dapr services (runtime, operator, placement service). More details on how to get logs can be found [here](https://github.com/dapr/docs/tree/master/best-practices/troubleshooting/logs.md).
+    - You have as much data as possible. This usually comes in the form of logs and/or stacktrace. If running on Kubernetes or other environment, look at the logs of the Dapr services (runtime, operator, placement service). More details on how to get logs can be found [here](https://docs.dapr.io/operations/troubleshooting/logs-troubleshooting/).
 1. For proposals
     - Many changes to the Dapr runtime may require changes to the API. In that case, the best place to discuss the potential feature is the main [Dapr repo](https://github.com/dapr/dapr).
     - Other examples could include bindings, state stores or entirely new components.
@@ -74,14 +74,7 @@ A good way to communicate before investing too much time is to create a "Work-in
 
 ### Use of Third-party code
 
-- All third-party code must be placed in the `vendor/` folder.
-- `vendor/` folder is managed by Go modules and stores the source code of third-party Go dependencies. - The `vendor/` folder should not be modified manually.
 - Third-party code must include licenses.
-
-A non-exclusive list of code that must be places in `vendor/`:
-
-- Open source, free software, or commercially-licensed code.
-- Tools or libraries or protocols that are open source, free software, or commercially licensed.
 
 **Thank You!** - Your contributions to open source, large or small, make projects like this possible. Thank you for taking the time to contribute.
 

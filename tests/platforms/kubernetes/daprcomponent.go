@@ -1,23 +1,25 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
 package kubernetes
 
 import (
-	v1alpha1 "github.com/dapr/dapr/pkg/apis/components/v1alpha1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1alpha1 "github.com/dapr/dapr/pkg/apis/components/v1alpha1"
 )
 
-// DaprComponent holds kubernetes client and component information
+// DaprComponent holds kubernetes client and component information.
 type DaprComponent struct {
 	namespace  string
 	kubeClient *KubeClient
 	component  ComponentDescription
 }
 
-// NewDaprComponent creates DaprComponent instance
+// NewDaprComponent creates DaprComponent instance.
 func NewDaprComponent(client *KubeClient, ns string, comp ComponentDescription) *DaprComponent {
 	return &DaprComponent{
 		namespace:  ns,
@@ -27,14 +29,18 @@ func NewDaprComponent(client *KubeClient, ns string, comp ComponentDescription) 
 }
 
 func (do *DaprComponent) addComponent() (*v1alpha1.Component, error) {
-	client := do.kubeClient.DaprComponents(DaprTestKubeNameSpace)
+	client := do.kubeClient.DaprComponents(DaprTestNamespace)
 
 	metadata := []v1alpha1.MetadataItem{}
 
 	for k, v := range do.component.MetaData {
 		metadata = append(metadata, v1alpha1.MetadataItem{
-			Name:  k,
-			Value: v,
+			Name: k,
+			Value: v1alpha1.DynamicValue{
+				JSON: v1.JSON{
+					Raw: []byte(v),
+				},
+			},
 		})
 	}
 
@@ -43,7 +49,7 @@ func (do *DaprComponent) addComponent() (*v1alpha1.Component, error) {
 }
 
 func (do *DaprComponent) deleteComponent() error {
-	client := do.kubeClient.DaprComponents(DaprTestKubeNameSpace)
+	client := do.kubeClient.DaprComponents(DaprTestNamespace)
 	return client.Delete(do.component.Name, &metav1.DeleteOptions{})
 }
 
@@ -56,6 +62,6 @@ func (do *DaprComponent) Init() error {
 	return err
 }
 
-func (do *DaprComponent) Dispose() error {
+func (do *DaprComponent) Dispose(wait bool) error {
 	return do.deleteComponent()
 }

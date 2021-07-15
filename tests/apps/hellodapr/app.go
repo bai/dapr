@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -61,6 +62,8 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		statusCode, res = blueTest(commandBody)
 	case "green":
 		statusCode, res = greenTest(commandBody)
+	case "envTest":
+		statusCode, res = envTest(commandBody)
 	}
 	res.StartTime = startTime
 	res.EndTime = epoch()
@@ -71,17 +74,30 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 func greenTest(commandRequest testCommandRequest) (int, appResponse) {
 	log.Printf("GreenTest - message: %s", commandRequest.Message)
-	return http.StatusOK, appResponse{Message: fmt.Sprintf("Hello green dapr!")}
+	return http.StatusOK, appResponse{Message: "Hello green dapr!"}
 }
 
 func blueTest(commandRequest testCommandRequest) (int, appResponse) {
 	log.Printf("BlueTest - message: %s", commandRequest.Message)
-	return http.StatusOK, appResponse{Message: fmt.Sprintf("Hello blue dapr!")}
+	return http.StatusOK, appResponse{Message: "Hello blue dapr!"}
+}
+
+func envTest(commandRequest testCommandRequest) (int, appResponse) {
+	log.Printf("envTest - message: %s", commandRequest.Message)
+	daprHTTPPort, ok := os.LookupEnv("DAPR_HTTP_PORT")
+	if !ok {
+		log.Println("Expected DAPR_HTTP_PORT to be set.")
+	}
+	daprGRPCPort, ok := os.LookupEnv("DAPR_GRPC_PORT")
+	if !ok {
+		log.Println("Expected DAPR_GRPC_PORT to be set.")
+	}
+	return http.StatusOK, appResponse{Message: fmt.Sprintf("%s %s", daprHTTPPort, daprGRPCPort)}
 }
 
 // epoch returns the current unix epoch timestamp
 func epoch() int {
-	return (int)(time.Now().UnixNano() / 1000000)
+	return (int)(time.Now().UTC().UnixNano() / 1000000)
 }
 
 // appRouter initializes restful api router

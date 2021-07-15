@@ -1,14 +1,15 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
 package version
 
-// Values for these are injected by the build
+// Values for these are injected by the build.
 var (
 	version = "edge"
-	commit  string
+
+	gitcommit, gitversion string
 )
 
 // Version returns the Dapr version. This is either a semantic version
@@ -19,5 +20,10 @@ func Version() string {
 
 // Commit returns the git commit SHA for the code that Dapr was built from.
 func Commit() string {
-	return commit
+	return gitcommit
+}
+
+// GitVersion returns the git version for the code that Dapr was built from.
+func GitVersion() string {
+	return gitversion
 }

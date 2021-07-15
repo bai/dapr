@@ -1,7 +1,7 @@
 // +build e2e
 
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -13,10 +13,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/dapr/dapr/tests/e2e/utils"
 	kube "github.com/dapr/dapr/tests/platforms/kubernetes"
 	"github.com/dapr/dapr/tests/runner"
 	"github.com/stretchr/testify/require"
-	"github.com/dapr/dapr/tests/e2e/utils"
 )
 
 type testCommandRequest struct {
@@ -29,6 +29,8 @@ type appResponse struct {
 	EndTime   int    `json:"end_time,omitempty"`
 }
 
+const numHealthChecks = 60 // Number of times to check for endpoint health per app.
+
 var tr *runner.TestRunner
 
 func TestMain(m *testing.M) {
@@ -39,22 +41,44 @@ func TestMain(m *testing.M) {
 	// and will be cleaned up after all tests are finished automatically
 	testApps := []kube.AppDescription{
 		{
-			AppName:        "hellobluedapr",
-			DaprEnabled:    true,
-			ImageName:      "e2e-hellodapr",
-			Replicas:       1,
-			IngressEnabled: true,
+			AppName:           "hellobluedapr",
+			DaprEnabled:       true,
+			ImageName:         "e2e-hellodapr",
+			Replicas:          1,
+			IngressEnabled:    true,
+			MetricsEnabled:    true,
+			DaprMemoryLimit:   "200Mi",
+			DaprMemoryRequest: "100Mi",
+			AppMemoryLimit:    "200Mi",
+			AppMemoryRequest:  "100Mi",
 		},
 		{
-			AppName:        "hellogreendapr",
-			DaprEnabled:    true,
-			ImageName:      "e2e-hellodapr",
-			Replicas:       1,
-			IngressEnabled: true,
+			AppName:           "hellogreendapr",
+			DaprEnabled:       true,
+			ImageName:         "e2e-hellodapr",
+			Replicas:          1,
+			IngressEnabled:    true,
+			MetricsEnabled:    true,
+			DaprMemoryLimit:   "200Mi",
+			DaprMemoryRequest: "100Mi",
+			AppMemoryLimit:    "200Mi",
+			AppMemoryRequest:  "100Mi",
+		},
+		{
+			AppName:           "helloenvtestdapr",
+			DaprEnabled:       true,
+			ImageName:         "e2e-hellodapr",
+			Replicas:          1,
+			IngressEnabled:    true,
+			MetricsEnabled:    true,
+			DaprMemoryLimit:   "200Mi",
+			DaprMemoryRequest: "100Mi",
+			AppMemoryLimit:    "200Mi",
+			AppMemoryRequest:  "100Mi",
 		},
 	}
 
-	tr = runner.NewTestRunner("hellodapr", testApps, nil)
+	tr = runner.NewTestRunner("hellodapr", testApps, nil, nil)
 	os.Exit(tr.Start(m))
 }
 
@@ -76,6 +100,12 @@ var helloAppTests = []struct {
 		"blue",
 		"Hello blue dapr!",
 	},
+	{
+		"envTest dapr",
+		"helloenvtestdapr",
+		"envTest",
+		"3500 50001",
+	},
 }
 
 func TestHelloDapr(t *testing.T) {
@@ -86,7 +116,7 @@ func TestHelloDapr(t *testing.T) {
 			require.NotEmpty(t, externalURL, "external URL must not be empty")
 
 			// Check if test app endpoint is available
-			resp, err := utils.HTTPGet(externalURL)
+			resp, err := utils.HTTPGetNTimes(externalURL, numHealthChecks)
 			require.NoError(t, err)
 
 			// Trigger test

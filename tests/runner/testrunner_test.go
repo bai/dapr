@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"testing"
 
-	kube "github.com/dapr/dapr/tests/platforms/kubernetes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	kube "github.com/dapr/dapr/tests/platforms/kubernetes"
 )
 
 type fakeTestingM struct{}
@@ -20,7 +21,7 @@ func (f *fakeTestingM) Run() int {
 	return 0
 }
 
-// MockPlatform is the mock of Disposable interface
+// MockPlatform is the mock of Disposable interface.
 type MockPlatform struct {
 	mock.Mock
 }
@@ -40,6 +41,11 @@ func (m *MockPlatform) AcquireAppExternalURL(name string) string {
 	return args.String(0)
 }
 
+func (m *MockPlatform) GetAppHostDetails(name string) (string, string, error) {
+	args := m.Called(name)
+	return args.String(0), args.String(0), args.Error(0)
+}
+
 func (m *MockPlatform) addComponents(comps []kube.ComponentDescription) error {
 	args := m.Called(comps)
 	return args.Error(0)
@@ -55,9 +61,34 @@ func (m *MockPlatform) Scale(name string, replicas int32) error {
 	return args.Error(0)
 }
 
+func (m *MockPlatform) SetAppEnv(name, key, value string) error {
+	args := m.Called(key)
+	return args.Error(0)
+}
+
 func (m *MockPlatform) Restart(name string) error {
 	args := m.Called(name)
 	return args.Error(0)
+}
+
+func (m *MockPlatform) PortForwardToApp(appName string, targetPort ...int) ([]int, error) {
+	args := m.Called(appName)
+	return []int{}, args.Error(0)
+}
+
+func (m *MockPlatform) GetAppUsage(appName string) (*AppUsage, error) {
+	args := m.Called(appName)
+	return &AppUsage{}, args.Error(0)
+}
+
+func (m *MockPlatform) GetSidecarUsage(appName string) (*AppUsage, error) {
+	args := m.Called(appName)
+	return &AppUsage{}, args.Error(0)
+}
+
+func (m *MockPlatform) GetTotalRestarts(appName string) (int, error) {
+	args := m.Called(appName)
+	return 0, args.Error(0)
 }
 
 func TestStartRunner(t *testing.T) {
@@ -69,6 +100,7 @@ func TestStartRunner(t *testing.T) {
 			RegistryName:   "fakeregistry",
 			Replicas:       1,
 			IngressEnabled: true,
+			MetricsEnabled: true,
 		},
 		{
 			AppName:        "fakeapp1",
@@ -77,6 +109,7 @@ func TestStartRunner(t *testing.T) {
 			RegistryName:   "fakeregistry",
 			Replicas:       1,
 			IngressEnabled: true,
+			MetricsEnabled: true,
 		},
 	}
 
@@ -99,10 +132,10 @@ func TestStartRunner(t *testing.T) {
 		mockPlatform.On("addComponents", fakeComps).Return(nil)
 
 		fakeRunner := &TestRunner{
-			id:          "fakeRunner",
-			components:  fakeComps,
-			initialApps: fakeTestApps,
-			Platform:    mockPlatform,
+			id:         "fakeRunner",
+			components: fakeComps,
+			testApps:   fakeTestApps,
+			Platform:   mockPlatform,
 		}
 
 		ret := fakeRunner.Start(&fakeTestingM{})
@@ -122,10 +155,10 @@ func TestStartRunner(t *testing.T) {
 		mockPlatform.On("addComponents", fakeComps).Return(nil)
 
 		fakeRunner := &TestRunner{
-			id:          "fakeRunner",
-			components:  fakeComps,
-			initialApps: fakeTestApps,
-			Platform:    mockPlatform,
+			id:         "fakeRunner",
+			components: fakeComps,
+			testApps:   fakeTestApps,
+			Platform:   mockPlatform,
 		}
 
 		ret := fakeRunner.Start(&fakeTestingM{})

@@ -1,157 +1,175 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
+	"net"
+	"sync"
 
-	log "github.com/Sirupsen/logrus"
-	scheme "github.com/dapr/dapr/pkg/client/clientset/versioned"
-	"github.com/gorilla/mux"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/dapr/kit/logger"
+
+	componentsapi "github.com/dapr/dapr/pkg/apis/components/v1alpha1"
+	configurationapi "github.com/dapr/dapr/pkg/apis/configuration/v1alpha1"
+	subscriptionsapi "github.com/dapr/dapr/pkg/apis/subscriptions/v1alpha1"
+	dapr_credentials "github.com/dapr/dapr/pkg/credentials"
+	operatorv1pb "github.com/dapr/dapr/pkg/proto/operator/v1"
 )
 
-var httpPort = 6500
+const serverPort = 6500
 
-//Server runs the Dapr API server for components and configurations
+var log = logger.NewLogger("dapr.operator.api")
+
+// Server runs the Dapr API server for components and configurations.
 type Server interface {
-	Run(ctx context.Context)
+	Run(certChain *dapr_credentials.CertChain)
+	OnComponentUpdated(component *componentsapi.Component)
 }
 
 type apiServer struct {
-	Client scheme.Interface
+	Client client.Client
+	// notify all dapr runtime
+	connLock          sync.Mutex
+	allConnUpdateChan map[string]chan *componentsapi.Component
 }
 
-type Configuration struct {
-	Spec ConfigurationSpec `json:"spec,omitempty"`
-}
-
-type ConfigurationSpec struct {
-	TracingSpec TracingSpec `json:"tracing,omitempty"`
-}
-
-type TracingSpec struct {
-	Enabled         bool   `json:"enabled"`
-	ExporterType    string `json:"exporterType,omitempty"`
-	ExporterAddress string `json:"exporterAddress,omitempty"`
-	ExpandParams    bool   `json:"expandParams"`
-	IncludeBody     bool   `json:"includeBody"`
-}
-
-// NewAPIServer returns a new API server
-func NewAPIServer(client scheme.Interface) Server {
+// NewAPIServer returns a new API server.
+func NewAPIServer(client client.Client) Server {
 	return &apiServer{
-		Client: client,
+		Client:            client,
+		allConnUpdateChan: make(map[string]chan *componentsapi.Component),
 	}
 }
 
-// Run starts a new HTTP control
-func (a *apiServer) Run(ctx context.Context) {
-	r := mux.NewRouter()
-	r.HandleFunc("/components", a.GetComponents).Methods("GET")
-	r.HandleFunc("/configurations/{name}", a.GetConfiguration).Methods("GET")
-	http.Handle("/", r)
-
-	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", httpPort),
-		Handler:      r,
-		WriteTimeout: time.Second * 15,
-		ReadTimeout:  time.Second * 15,
-		IdleTimeout:  time.Second * 60,
+// Run starts a new gRPC server.
+func (a *apiServer) Run(certChain *dapr_credentials.CertChain) {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", serverPort))
+	if err != nil {
+		log.Fatal("error starting tcp listener: %s", err)
 	}
 
-	doneCh := make(chan struct{})
+	opts, err := dapr_credentials.GetServerOptions(certChain)
+	if err != nil {
+		log.Fatal("error creating gRPC options: %s", err)
+	}
+	s := grpc.NewServer(opts...)
+	operatorv1pb.RegisterOperatorServer(s, a)
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			log.Info("API server is shutting down")
-			shutdownCtx, cancel := context.WithTimeout(
-				context.Background(),
-				time.Second*5,
-			)
-			defer cancel()
-			srv.Shutdown(shutdownCtx)
-		case <-doneCh:
+	log.Info("starting gRPC server")
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("gRPC server error: %v", err)
+	}
+}
+
+func (a *apiServer) OnComponentUpdated(component *componentsapi.Component) {
+	a.connLock.Lock()
+	for _, connUpdateChan := range a.allConnUpdateChan {
+		connUpdateChan <- component
+	}
+	a.connLock.Unlock()
+}
+
+// GetConfiguration returns a Dapr configuration.
+func (a *apiServer) GetConfiguration(ctx context.Context, in *operatorv1pb.GetConfigurationRequest) (*operatorv1pb.GetConfigurationResponse, error) {
+	key := types.NamespacedName{Namespace: in.Namespace, Name: in.Name}
+	var config configurationapi.Configuration
+	if err := a.Client.Get(ctx, key, &config); err != nil {
+		return nil, errors.Wrap(err, "error getting configuration")
+	}
+	b, err := json.Marshal(&config)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshalling configuration")
+	}
+	return &operatorv1pb.GetConfigurationResponse{
+		Configuration: b,
+	}, nil
+}
+
+// ListComponents returns a list of Dapr components.
+func (a *apiServer) ListComponents(ctx context.Context, in *emptypb.Empty) (*operatorv1pb.ListComponentResponse, error) {
+	var components componentsapi.ComponentList
+	if err := a.Client.List(ctx, &components); err != nil {
+		return nil, errors.Wrap(err, "error getting components")
+	}
+	resp := &operatorv1pb.ListComponentResponse{
+		Components: [][]byte{},
+	}
+	for i := range components.Items {
+		c := components.Items[i] // Make a copy since we will refer to this as a reference in this loop.
+		b, err := json.Marshal(&c)
+		if err != nil {
+			log.Warnf("error marshalling component: %s", err)
+			continue
 		}
+		resp.Components = append(resp.Components, b)
+	}
+	return resp, nil
+}
+
+// ListSubscriptions returns a list of Dapr pub/sub subscriptions.
+func (a *apiServer) ListSubscriptions(ctx context.Context, in *emptypb.Empty) (*operatorv1pb.ListSubscriptionsResponse, error) {
+	var subs subscriptionsapi.SubscriptionList
+	if err := a.Client.List(ctx, &subs); err != nil {
+		return nil, errors.Wrap(err, "error getting subscriptions")
+	}
+	resp := &operatorv1pb.ListSubscriptionsResponse{
+		Subscriptions: [][]byte{},
+	}
+	for i := range subs.Items {
+		s := subs.Items[i] // Make a copy since we will refer to this as a reference in this loop.
+		b, err := json.Marshal(&s)
+		if err != nil {
+			log.Warnf("error marshalling subscription: %s", err)
+			continue
+		}
+		resp.Subscriptions = append(resp.Subscriptions, b)
+	}
+	return resp, nil
+}
+
+// ComponentUpdate updates Dapr sidecars whenever a component in the cluster is modified.
+func (a *apiServer) ComponentUpdate(in *emptypb.Empty, srv operatorv1pb.Operator_ComponentUpdateServer) error {
+	log.Info("sidecar connected for component updates")
+	key := uuid.New().String()
+	a.connLock.Lock()
+	a.allConnUpdateChan[key] = make(chan *componentsapi.Component, 1)
+	updateChan := a.allConnUpdateChan[key]
+	a.connLock.Unlock()
+	defer func() {
+		close(updateChan)
+		a.connLock.Lock()
+		delete(a.allConnUpdateChan, key)
+		a.connLock.Unlock()
 	}()
 
-	err := srv.ListenAndServe()
-	if err != nil {
-		log.Errorf("API Server error: %s", err)
-	}
-
-	close(doneCh)
-}
-
-// GetConfiguration returns an Dapr configuration
-func (a *apiServer) GetConfiguration(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	name := vars["name"]
-	configs, err := a.Client.ConfigurationV1alpha1().Configurations(meta_v1.NamespaceAll).List(meta_v1.ListOptions{})
-	if err != nil {
-		log.Errorf("Error getting configuration: %s", err)
-		RespondWithError(w, 500, fmt.Sprintf("Error getting configurations from kube-client: %s", err))
-		return
-	}
-
-	for _, c := range configs.Items {
-		if c.ObjectMeta.Name == name {
-			ret := Configuration{
-				Spec: ConfigurationSpec{
-					TracingSpec: TracingSpec{
-						Enabled:         c.Spec.TracingSpec.Enabled,
-						ExporterType:    c.Spec.TracingSpec.ExporterType,
-						ExporterAddress: c.Spec.TracingSpec.ExporterAddress,
-						ExpandParams:    c.Spec.TracingSpec.ExpandParams,
-						IncludeBody:     c.Spec.TracingSpec.IncludeBody,
-					},
-				},
+	for c := range updateChan {
+		go func(c *componentsapi.Component) {
+			b, err := json.Marshal(&c)
+			if err != nil {
+				log.Warnf("error serializing component %s (%s): %s", c.GetName(), c.Spec.Type, err)
+				return
 			}
-			RespondWithJSON(w, 200, ret)
-			return
-		}
+			err = srv.Send(&operatorv1pb.ComponentUpdateEvent{
+				Component: b,
+			})
+			if err != nil {
+				log.Warnf("error updating sidecar with component %s (%s): %s", c.GetName(), c.Spec.Type, err)
+				return
+			}
+			log.Infof("updated sidecar with component %s (%s)", c.GetName(), c.Spec.Type)
+		}(c)
 	}
-
-	RespondWithJSON(w, 200, nil)
-}
-
-// GetComponents returns a list of Dapr components
-func (a *apiServer) GetComponents(w http.ResponseWriter, r *http.Request) {
-	components, err := a.Client.ComponentsV1alpha1().Components(meta_v1.NamespaceAll).List(meta_v1.ListOptions{})
-	if err != nil {
-		errMsg := fmt.Sprintf("error getting components: %s", err)
-		log.Error(errMsg)
-		RespondWithError(w, 500, errMsg)
-		return
-	}
-
-	RespondWithJSON(w, 200, components.Items)
-}
-
-// RespondWithError is a helper method for returning an error http message
-func RespondWithError(w http.ResponseWriter, code int, message string) {
-	RespondWithJSON(w, code, map[string]string{"error": message})
-}
-
-// RespondWithJSON is a helper method for returning an HTTP message with a JSON payload
-func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-	buffer := &bytes.Buffer{}
-	encoder := json.NewEncoder(buffer)
-	encoder.SetEscapeHTML(false)
-	encoder.Encode(payload)
-
-	bytes := buffer.Bytes()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	w.Write(bytes)
+	return nil
 }

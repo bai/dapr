@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -11,8 +11,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/dapr/kit/logger"
 )
+
+var log = logger.NewLogger("dapr.signals")
 
 // Context returns a context which will be canceled when either the SIGINT or
 // SIGTERM signal is caught. It also returns a function that can be used to

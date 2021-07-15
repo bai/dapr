@@ -1,5 +1,5 @@
 // ------------------------------------------------------------
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
 // Licensed under the MIT License.
 // ------------------------------------------------------------
 
@@ -7,67 +7,87 @@ package runtime
 
 import (
 	config "github.com/dapr/dapr/pkg/config/modes"
+	"github.com/dapr/dapr/pkg/credentials"
 	"github.com/dapr/dapr/pkg/modes"
 )
 
-// Protocol is a communications protocol
+// Protocol is a communications protocol.
 type Protocol string
 
 const (
-	// GRPCProtocol is a gRPC communication protocol
+	// GRPCProtocol is a gRPC communication protocol.
 	GRPCProtocol Protocol = "grpc"
-	// HTTPProtocol is a HTTP communication protocol
+	// HTTPProtocol is a HTTP communication protocol.
 	HTTPProtocol Protocol = "http"
-	// DefaultDaprHTTPPort is the default http port for Dapr
+	// DefaultDaprHTTPPort is the default http port for Dapr.
 	DefaultDaprHTTPPort = 3500
-	// DefaultDaprGRPCPort is the default gRPC port for Dapr
-	DefaultDaprGRPCPort = 50001
-	// DefaultProfilePort is the default port for profiling endpoints
+	// DefaultDaprAPIGRPCPort is the default API gRPC port for Dapr.
+	DefaultDaprAPIGRPCPort = 50001
+	// DefaultProfilePort is the default port for profiling endpoints.
 	DefaultProfilePort = 7777
-	// DefaultComponentsPath is the default dir for Dapr components (standalone mode)
-	DefaultComponentsPath = "./components"
-	// DefaultAllowedOrigins is the default origins allowed for the Dapr HTTP servers
-	DefaultAllowedOrigins = "*"
+	// DefaultMetricsPort is the default port for metrics endpoints.
+	DefaultMetricsPort = 9090
+	// DefaultMaxRequestBodySize is the default option for the maximum body size in MB for Dapr HTTP servers.
+	DefaultMaxRequestBodySize = 4
+	// DefaultAPIListenAddress is which address to listen for the Dapr HTTP and GRPC APIs. Empty string is all addresses.
+	DefaultAPIListenAddress = ""
 )
 
-// Config holds the Dapr Runtime configuration
+// Config holds the Dapr Runtime configuration.
 type Config struct {
-	ID                      string
-	HTTPPort                int
-	ProfilePort             int
-	EnableProfiling         bool
-	GRPCPort                int
-	ApplicationPort         int
-	ApplicationProtocol     Protocol
-	Mode                    modes.DaprMode
-	PlacementServiceAddress string
-	GlobalConfig            string
-	AllowedOrigins          string
-	Standalone              config.StandaloneConfig
-	Kubernetes              config.KubernetesConfig
-	MaxConcurrency          int
+	ID                   string
+	HTTPPort             int
+	ProfilePort          int
+	EnableProfiling      bool
+	APIGRPCPort          int
+	InternalGRPCPort     int
+	ApplicationPort      int
+	ApplicationProtocol  Protocol
+	Mode                 modes.DaprMode
+	PlacementAddresses   []string
+	GlobalConfig         string
+	AllowedOrigins       string
+	Standalone           config.StandaloneConfig
+	Kubernetes           config.KubernetesConfig
+	MaxConcurrency       int
+	mtlsEnabled          bool
+	SentryServiceAddress string
+	CertChain            *credentials.CertChain
+	AppSSL               bool
+	MaxRequestBodySize   int
+	APIListenAddress     string
 }
 
-// NewRuntimeConfig returns a new runtime config
-func NewRuntimeConfig(id, placementServiceAddress, controlPlaneAddress, allowedOrigins, globalConfig, componentsPath, appProtocol, mode string, httpPort, grpcPort, appPort, profilePort int, enableProfiling bool, maxConcurrency int) *Config {
+// NewRuntimeConfig returns a new runtime config.
+func NewRuntimeConfig(
+	id string, placementAddresses []string,
+	controlPlaneAddress, allowedOrigins, globalConfig, componentsPath, appProtocol, mode string,
+	httpPort, internalGRPCPort, apiGRPCPort int, apiListenAddress string, appPort, profilePort int,
+	enableProfiling bool, maxConcurrency int, mtlsEnabled bool, sentryAddress string, appSSL bool, maxRequestBodySize int) *Config {
 	return &Config{
-		ID:                      id,
-		HTTPPort:                httpPort,
-		GRPCPort:                grpcPort,
-		ApplicationPort:         appPort,
-		ProfilePort:             profilePort,
-		ApplicationProtocol:     Protocol(appProtocol),
-		Mode:                    modes.DaprMode(mode),
-		PlacementServiceAddress: placementServiceAddress,
-		GlobalConfig:            globalConfig,
-		AllowedOrigins:          allowedOrigins,
+		ID:                  id,
+		HTTPPort:            httpPort,
+		InternalGRPCPort:    internalGRPCPort,
+		APIGRPCPort:         apiGRPCPort,
+		ApplicationPort:     appPort,
+		ProfilePort:         profilePort,
+		ApplicationProtocol: Protocol(appProtocol),
+		Mode:                modes.DaprMode(mode),
+		PlacementAddresses:  placementAddresses,
+		GlobalConfig:        globalConfig,
+		AllowedOrigins:      allowedOrigins,
 		Standalone: config.StandaloneConfig{
 			ComponentsPath: componentsPath,
 		},
 		Kubernetes: config.KubernetesConfig{
 			ControlPlaneAddress: controlPlaneAddress,
 		},
-		EnableProfiling: enableProfiling,
-		MaxConcurrency:  maxConcurrency,
+		EnableProfiling:      enableProfiling,
+		MaxConcurrency:       maxConcurrency,
+		mtlsEnabled:          mtlsEnabled,
+		SentryServiceAddress: sentryAddress,
+		AppSSL:               appSSL,
+		MaxRequestBodySize:   maxRequestBodySize,
+		APIListenAddress:     apiListenAddress,
 	}
 }
